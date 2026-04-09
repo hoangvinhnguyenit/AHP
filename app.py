@@ -12,6 +12,7 @@ def connect_db():
         "user": "postgres",
         "password": "admin",
         "port": "5432",
+        "sslmode": "disable",
     }
     if "postgres" in st.secrets:
         secret = st.secrets["postgres"]
@@ -21,6 +22,7 @@ def connect_db():
             "user": secret.get("user", config["user"]),
             "password": secret.get("password", config["password"]),
             "port": secret.get("port", config["port"]),
+            "sslmode": secret.get("sslmode", "require"),
         })
     return psycopg2.connect(**config)
 
