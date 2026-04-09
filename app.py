@@ -79,13 +79,11 @@ def save_chat_to_db(user_msg, ai_res):
         client = get_supabase_client()
         customer_name = st.session_state.get('cust_name', 'Khách vãng lai')
         if client:
-            resp = client.from_("chat_history").insert({
+            client.from_("chat_history").insert({
                 "customer_name": customer_name,
                 "user_message": user_msg,
                 "ai_response": ai_res,
             }).execute()
-            if resp.error:
-                raise Exception(resp.error)
             return
 
         conn = connect_db()
@@ -192,11 +190,6 @@ def view_all_appointments():
         if client:
             customers = client.from_("customers").select("customer_id, full_name").execute()
             appointments = client.from_("appointments").select("customer_id, id, ngay_xem, gio_xem, ghi_chu").order("ngay_xem", desc=True).order("gio_xem", desc=True).execute()
-            if customers.error:
-                raise Exception(customers.error)
-            if appointments.error:
-                raise Exception(appointments.error)
-
             df_customers = pd.DataFrame(customers.data)
             df_appointments = pd.DataFrame(appointments.data)
             if df_appointments.empty:
@@ -237,21 +230,17 @@ def save_appointment(cust_name, id, date, time, note):
         client = get_supabase_client()
         if client:
             customers = client.from_("customers").select("customer_id").eq("full_name", cust_name).order("customer_id", desc=True).limit(1).execute()
-            if customers.error:
-                raise Exception(customers.error)
             if not customers.data:
                 st.error("Không tìm thấy thông tin khách hàng trong hệ thống.")
                 return False
             c_id = customers.data[0]["customer_id"]
-            resp = client.from_("appointments").insert({
+            client.from_("appointments").insert({
                 "customer_id": c_id,
                 "id": id,
                 "ngay_xem": date,
                 "gio_xem": time,
                 "ghi_chu": note,
             }).execute()
-            if resp.error:
-                raise Exception(resp.error)
             return True
 
         conn = connect_db()
@@ -283,12 +272,8 @@ def delete_consultation_history():
     try:
         client = get_supabase_client()
         if client:
-            resp1 = client.from_("consultation_history").delete().not_("customer_id", "is", None).execute()
-            resp2 = client.from_("customers").delete().not_("customer_id", "is", None).execute()
-            if resp1.error:
-                raise Exception(resp1.error)
-            if resp2.error:
-                raise Exception(resp2.error)
+            client.from_("consultation_history").delete().not_("customer_id", "is", None).execute()
+            client.from_("customers").delete().not_("customer_id", "is", None).execute()
             return True
 
         conn = connect_db()
@@ -310,11 +295,6 @@ def load_consultation_history():
         if client:
             customers = client.from_("customers").select("customer_id, full_name, phone").execute()
             history = client.from_("consultation_history").select("customer_id, id, score_ahp, loi_khuyen_ai, ngay_tu_van").order("ngay_tu_van", desc=True).limit(10).execute()
-            if customers.error:
-                raise Exception(customers.error)
-            if history.error:
-                raise Exception(history.error)
-
             df_customers = pd.DataFrame(customers.data)
             df_history = pd.DataFrame(history.data)
             if df_history.empty:
@@ -356,17 +336,13 @@ def save_consultation(name, phone, email, id, score, advice):
                 "phone": phone,
                 "email": email,
             }).execute()
-            if resp.error:
-                raise Exception(resp.error)
             c_id = resp.data[0]["customer_id"]
-            resp2 = client.from_("consultation_history").insert({
+            client.from_("consultation_history").insert({
                 "customer_id": c_id,
                 "id": id,
                 "score_ahp": score,
                 "loi_khuyen_ai": advice,
             }).execute()
-            if resp2.error:
-                raise Exception(resp2.error)
             return True
 
         conn = connect_db()
@@ -389,8 +365,6 @@ def load_data():
         client = get_supabase_client()
         if client:
             resp = client.from_("danh_sach_nha").select("*").execute()
-            if resp.error:
-                raise Exception(resp.error)
             return pd.DataFrame(resp.data)
 
         conn = connect_db()
