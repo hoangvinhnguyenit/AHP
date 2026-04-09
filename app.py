@@ -390,10 +390,15 @@ if df_raw is not None:
     # --- LỚP 1: BỘ LỌC TRI THỨC (SIDEBAR) ---
     st.sidebar.header("🔍 Lớp 1: Thiết lập yêu cầu")
 
-    # Phân loại khu vực chuẩn theo thực tế 20 quận/huyện trong DB của bạn
+    def normalize_quan(name):
+        if name.startswith("Quận "):
+            return "Q" + name.split(" ", 1)[1]
+        return name
+
+    # Phân loại khu vực chuẩn theo dữ liệu trên Supabase
     dict_khu_vuc = {
-        "🏙️ Vùng Trung tâm": ["Quận 1", "Quận 3", "Quận 4", "Quận 5", "Quận 10", "Phú Nhuận"],
-        "🏠 Vùng Nội thành": ["Quận 6", "Quận 7", "Quận 8", "Quận 11", "Quận 12", "Bình Tân", "Bình Thạnh", "Gò Vấp", "Tân Bình", "Tân Phú", "Thủ Đức"],
+        "🏙️ Vùng Trung tâm": ["Q1", "Q3", "Q4", "Q5", "Q6", "Q10", "Q11", "Q12"],
+        "🏠 Vùng Nội thành": ["Q7", "Q8", "Bình Tân", "Bình Thạnh", "Gò Vấp", "Tân Bình", "Tân Phú", "Thủ Đức"],
         "🌳 Vùng Ngoại thành": ["Bình Chánh", "Hóc Môn", "Nhà Bè", "Củ Chi", "Cần Giờ"]
     }
 
@@ -405,6 +410,7 @@ if df_raw is not None:
         
         # Gộp tất cả lựa chọn
         quan_chon = chon_trung_tam + chon_noi_thanh + chon_ngoai_thanh
+        quan_chon = [normalize_quan(q) for q in quan_chon]
         
         if quan_chon:
             st.success(f"✅ Đã chọn {len(quan_chon)} khu vực")
