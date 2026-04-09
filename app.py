@@ -1,9 +1,15 @@
+import os
 import streamlit as st
 import pandas as pd
 import psycopg2
 import numpy as np
 import plotly.express as px
 import socket
+
+try:
+    from supabase import create_client
+except ImportError:
+    create_client = None
 
 # --- 1. HÀM XỬ LÝ DATABASE ---
 def resolve_ipv4(host):
@@ -13,7 +19,25 @@ def resolve_ipv4(host):
         return None
 
 
+def get_supabase_client():
+    url = st.secrets.get("SUPABASE_URL") or os.getenv("SUPABASE_URL")
+    key = st.secrets.get("SUPABASE_KEY") or os.getenv("SUPABASE_KEY")
+    if not url or not key or create_client is None:
+        return None
+    return create_client(url, key)
+
+
 def connect_db():
+    if "DATABASE_URL" in st.secrets:
+        db_url = st.secrets["DATABASE_URL"]
+        sslmode = st.secrets.get("sslmode", "require")
+        return psycopg2.connect(dsn=db_url, sslmode=sslmode)
+
+    if "database_url" in st.secrets:
+        db_url = st.secrets["database_url"]
+        sslmode = st.secrets.get("sslmode", "require")
+        return psycopg2.connect(dsn=db_url, sslmode=sslmode)
+
     config = {
         "host": "localhost",
         "database": "HeHoTroQuyetDinh",
@@ -36,15 +60,36 @@ def connect_db():
             ipv4 = resolve_ipv4(config["host"])
             if ipv4:
                 config["hostaddr"] = ipv4
-    return psycopg2.connect(**config)
+        return psycopg2.connect(**config)
+
+    if os.getenv("DATABASE_URL"):
+        db_url = os.getenv("DATABASE_URL")
+        sslmode = os.getenv("PGSSLMODE", "require")
+        return psycopg2.connect(dsn=db_url, sslmode=sslmode)
+
+    st.error(
+        "Chưa cấu hình kết nối database. \n"
+        "Vui lòng thêm key `DATABASE_URL` hoặc `postgres` vào Streamlit secrets.\n"
+        "Nếu bạn chạy local, hãy thêm file `.streamlit/secrets.toml` hoặc chạy Postgres tại localhost."
+    )
+    raise RuntimeError("No database credentials found")
 
 def save_chat_to_db(user_msg, ai_res):
     try:
+        client = get_supabase_client()
+        customer_name = st.session_state.get('cust_name', 'Khách vãng lai')
+        if client:
+            resp = client.from_("chat_history").insert({
+                "customer_name": customer_name,
+                "user_message": user_msg,
+                "ai_response": ai_res,
+            }).execute()
+            if resp.error:
+                raise Exception(resp.error)
+            return
+
         conn = connect_db()
         cur = conn.cursor()
-        
-        # Lấy tên khách hàng từ session_state (nếu có)
-        customer_name = st.session_state.get('cust_name', 'Khách vãng lai')
         
         query = """
             INSERT INTO chat_history (customer_name, user_message, ai_response)
@@ -143,7 +188,30 @@ def hien_thi_khung_chat(top_1):
 
 def view_all_appointments():
     try:
-        # Sử dụng thông số kết nối của bạn
+        client = get_supabase_client()
+        if client:
+            customers = client.from_("customers").select("customer_id, full_name").execute()
+            appointments = client.from_("appointments").select("customer_id, id, ngay_xem, gio_xem, ghi_chu").order("ngay_xem", desc=True).order("gio_xem", desc=True).execute()
+            if customers.error:
+                raise Exception(customers.error)
+            if appointments.error:
+                raise Exception(appointments.error)
+
+            df_customers = pd.DataFrame(customers.data)
+            df_appointments = pd.DataFrame(appointments.data)
+            if df_appointments.empty:
+                return pd.DataFrame(columns=["Ngày xem", "Giờ xem", "Tên khách hàng", "Mã căn nhà", "Ghi chú"])
+
+            df = df_appointments.merge(df_customers, on="customer_id", how="left")
+            df = df.rename(columns={
+                "full_name": "Tên khách hàng",
+                "id": "Mã căn nhà",
+                "ngay_xem": "Ngày xem",
+                "gio_xem": "Giờ xem",
+                "ghi_chu": "Ghi chú",
+            })
+            return df[["Ngày xem", "Giờ xem", "Tên khách hàng", "Mã căn nhà", "Ghi chú"]]
+
         conn = connect_db()
         query = """
             SELECT 
@@ -166,16 +234,34 @@ def view_all_appointments():
 
 def save_appointment(cust_name, id, date, time, note):
     try:
+        client = get_supabase_client()
+        if client:
+            customers = client.from_("customers").select("customer_id").eq("full_name", cust_name).order("customer_id", desc=True).limit(1).execute()
+            if customers.error:
+                raise Exception(customers.error)
+            if not customers.data:
+                st.error("Không tìm thấy thông tin khách hàng trong hệ thống.")
+                return False
+            c_id = customers.data[0]["customer_id"]
+            resp = client.from_("appointments").insert({
+                "customer_id": c_id,
+                "id": id,
+                "ngay_xem": date,
+                "gio_xem": time,
+                "ghi_chu": note,
+            }).execute()
+            if resp.error:
+                raise Exception(resp.error)
+            return True
+
         conn = connect_db()
         cur = conn.cursor()
         
-        # Bước 1: Tìm customer_id từ tên khách hàng đã đăng ký
         cur.execute("SELECT customer_id FROM customers WHERE full_name = %s ORDER BY customer_id DESC LIMIT 1", (cust_name,))
         result = cur.fetchone()
         
         if result:
             c_id = result[0]
-            # Bước 2: Chèn vào bảng appointments với customer_id đúng
             query = """
                 INSERT INTO appointments (customer_id, id, ngay_xem, gio_xem, ghi_chu)
                 VALUES (%s, %s, %s, %s, %s)
@@ -195,6 +281,16 @@ def save_appointment(cust_name, id, date, time, note):
 
 def delete_consultation_history():
     try:
+        client = get_supabase_client()
+        if client:
+            resp1 = client.from_("consultation_history").delete().not_("customer_id", "is", None).execute()
+            resp2 = client.from_("customers").delete().not_("customer_id", "is", None).execute()
+            if resp1.error:
+                raise Exception(resp1.error)
+            if resp2.error:
+                raise Exception(resp2.error)
+            return True
+
         conn = connect_db()
         cur = conn.cursor()
         cur.execute("DELETE FROM consultation_history")
@@ -207,8 +303,34 @@ def delete_consultation_history():
         st.error(f"❌ Lỗi khi xóa dữ liệu: {e}")
         return False
 
+
 def load_consultation_history():
     try:
+        client = get_supabase_client()
+        if client:
+            customers = client.from_("customers").select("customer_id, full_name, phone").execute()
+            history = client.from_("consultation_history").select("customer_id, id, score_ahp, loi_khuyen_ai, ngay_tu_van").order("ngay_tu_van", desc=True).limit(10).execute()
+            if customers.error:
+                raise Exception(customers.error)
+            if history.error:
+                raise Exception(history.error)
+
+            df_customers = pd.DataFrame(customers.data)
+            df_history = pd.DataFrame(history.data)
+            if df_history.empty:
+                return pd.DataFrame(columns=["Khách hàng", "SĐT", "Mã nhà đề xuất", "Điểm AHP", "Lời khuyên", "Thời gian"])
+
+            df = df_history.merge(df_customers, on="customer_id", how="left")
+            df = df.rename(columns={
+                "full_name": "Khách hàng",
+                "phone": "SĐT",
+                "id": "Mã nhà đề xuất",
+                "score_ahp": "Điểm AHP",
+                "loi_khuyen_ai": "Lời khuyên",
+                "ngay_tu_van": "Thời gian",
+            })
+            return df[["Khách hàng", "SĐT", "Mã nhà đề xuất", "Điểm AHP", "Lời khuyên", "Thời gian"]]
+
         conn = connect_db()
         query = """
             SELECT c.full_name as "Khách hàng", c.phone as "SĐT", h.id as "Mã nhà đề xuất", 
@@ -224,8 +346,29 @@ def load_consultation_history():
         st.error(f"❌ Lỗi nạp lịch sử: {e}")
         return None
 
+
 def save_consultation(name, phone, email, id, score, advice):
     try:
+        client = get_supabase_client()
+        if client:
+            resp = client.from_("customers").insert({
+                "full_name": name,
+                "phone": phone,
+                "email": email,
+            }).execute()
+            if resp.error:
+                raise Exception(resp.error)
+            c_id = resp.data[0]["customer_id"]
+            resp2 = client.from_("consultation_history").insert({
+                "customer_id": c_id,
+                "id": id,
+                "score_ahp": score,
+                "loi_khuyen_ai": advice,
+            }).execute()
+            if resp2.error:
+                raise Exception(resp2.error)
+            return True
+
         conn = connect_db()
         cur = conn.cursor()
         cur.execute("INSERT INTO customers (full_name, phone, email) VALUES (%s, %s, %s) RETURNING customer_id", (name, phone, email))
@@ -242,7 +385,14 @@ def save_consultation(name, phone, email, id, score, advice):
 
 def load_data():
     try:
-        st.cache_data.clear() # Luôn làm mới dữ liệu từ pgAdmin
+        st.cache_data.clear() # Luôn làm mới dữ liệu từ pgAdmin hoặc Supabase
+        client = get_supabase_client()
+        if client:
+            resp = client.from_("danh_sach_nha").select("*").execute()
+            if resp.error:
+                raise Exception(resp.error)
+            return pd.DataFrame(resp.data)
+
         conn = connect_db()
         query = "SELECT * FROM danh_sach_nha"
         df = pd.read_sql(query, conn)
