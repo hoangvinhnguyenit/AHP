@@ -6,20 +6,27 @@ import plotly.express as px
 
 # --- 1. HÀM XỬ LÝ DATABASE ---
 def connect_db():
-    return psycopg2.connect(
-        host="localhost", 
-        database="HeHoTroQuyetDinh", 
-        user="postgres", 
-        password="admin", 
-        port="5432"
-    )
+    config = {
+        "host": "localhost",
+        "database": "HeHoTroQuyetDinh",
+        "user": "postgres",
+        "password": "admin",
+        "port": "5432",
+    }
+    if "postgres" in st.secrets:
+        secret = st.secrets["postgres"]
+        config.update({
+            "host": secret.get("host", config["host"]),
+            "database": secret.get("database", config["database"]),
+            "user": secret.get("user", config["user"]),
+            "password": secret.get("password", config["password"]),
+            "port": secret.get("port", config["port"]),
+        })
+    return psycopg2.connect(**config)
 
 def save_chat_to_db(user_msg, ai_res):
     try:
-        conn = psycopg2.connect(
-            host="localhost", database="HeHoTroQuyetDinh", 
-            user="postgres", password="admin", port="5432"
-        )
+        conn = connect_db()
         cur = conn.cursor()
         
         # Lấy tên khách hàng từ session_state (nếu có)
@@ -123,10 +130,7 @@ def hien_thi_khung_chat(top_1):
 def view_all_appointments():
     try:
         # Sử dụng thông số kết nối của bạn
-        conn = psycopg2.connect(
-            host="localhost", database="HeHoTroQuyetDinh", 
-            user="postgres", password="admin", port="5432"
-        )
+        conn = connect_db()
         query = """
             SELECT 
                 a.ngay_xem AS "Ngày xem", 
@@ -148,10 +152,7 @@ def view_all_appointments():
 
 def save_appointment(cust_name, id, date, time, note):
     try:
-        conn = psycopg2.connect(
-            host="localhost", database="HeHoTroQuyetDinh", 
-            user="postgres", password="admin", port="5432"
-        )
+        conn = connect_db()
         cur = conn.cursor()
         
         # Bước 1: Tìm customer_id từ tên khách hàng đã đăng ký
@@ -180,7 +181,7 @@ def save_appointment(cust_name, id, date, time, note):
 
 def delete_consultation_history():
     try:
-        conn = psycopg2.connect(host="localhost", database="HeHoTroQuyetDinh", user="postgres", password="admin", port="5432")
+        conn = connect_db()
         cur = conn.cursor()
         cur.execute("DELETE FROM consultation_history")
         cur.execute("DELETE FROM customers")
@@ -194,7 +195,7 @@ def delete_consultation_history():
 
 def load_consultation_history():
     try:
-        conn = psycopg2.connect(host="localhost", database="HeHoTroQuyetDinh", user="postgres", password="admin", port="5432")
+        conn = connect_db()
         query = """
             SELECT c.full_name as "Khách hàng", c.phone as "SĐT", h.id as "Mã nhà đề xuất", 
                    h.score_ahp as "Điểm AHP", h.loi_khuyen_ai as "Lời khuyên", h.ngay_tu_van as "Thời gian"
@@ -211,7 +212,7 @@ def load_consultation_history():
 
 def save_consultation(name, phone, email, id, score, advice):
     try:
-        conn = psycopg2.connect(host="localhost", database="HeHoTroQuyetDinh", user="postgres", password="admin", port="5432")
+        conn = connect_db()
         cur = conn.cursor()
         cur.execute("INSERT INTO customers (full_name, phone, email) VALUES (%s, %s, %s) RETURNING customer_id", (name, phone, email))
         c_id = cur.fetchone()[0]
@@ -228,7 +229,7 @@ def save_consultation(name, phone, email, id, score, advice):
 def load_data():
     try:
         st.cache_data.clear() # Luôn làm mới dữ liệu từ pgAdmin
-        conn = psycopg2.connect(host="localhost", database="HeHoTroQuyetDinh", user="postgres", password="admin", port="5432")
+        conn = connect_db()
         query = "SELECT * FROM danh_sach_nha"
         df = pd.read_sql(query, conn)
         conn.close()
