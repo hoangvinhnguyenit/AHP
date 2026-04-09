@@ -3,8 +3,16 @@ import pandas as pd
 import psycopg2
 import numpy as np
 import plotly.express as px
+import socket
 
 # --- 1. HÀM XỬ LÝ DATABASE ---
+def resolve_ipv4(host):
+    try:
+        return socket.getaddrinfo(host, None, family=socket.AF_INET)[0][4][0]
+    except Exception:
+        return None
+
+
 def connect_db():
     config = {
         "host": "localhost",
@@ -24,6 +32,10 @@ def connect_db():
             "port": secret.get("port", config["port"]),
             "sslmode": secret.get("sslmode", "require"),
         })
+        if config["host"] != "localhost":
+            ipv4 = resolve_ipv4(config["host"])
+            if ipv4:
+                config["hostaddr"] = ipv4
     return psycopg2.connect(**config)
 
 def save_chat_to_db(user_msg, ai_res):
