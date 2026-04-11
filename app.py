@@ -1,10 +1,16 @@
+import importlib
 import os
+import datetime
 import streamlit as st
 import pandas as pd
 import psycopg2
 import numpy as np
-import plotly.express as px
 import socket
+
+try:
+    px = importlib.import_module("plotly.express")
+except ImportError:
+    px = None
 
 try:
     from supabase import create_client
@@ -234,11 +240,13 @@ def save_appointment(cust_name, id, date, time, note):
                 st.error("Không tìm thấy thông tin khách hàng trong hệ thống.")
                 return False
             c_id = customers.data[0]["customer_id"]
+            ngay_xem = date.isoformat() if isinstance(date, (datetime.date, datetime.datetime)) else str(date)
+            gio_xem = time.isoformat() if isinstance(time, (datetime.time, datetime.datetime)) else str(time)
             client.from_("appointments").insert({
                 "customer_id": c_id,
                 "id": id,
-                "ngay_xem": date,
-                "gio_xem": time,
+                "ngay_xem": ngay_xem,
+                "gio_xem": gio_xem,
                 "ghi_chu": note,
             }).execute()
             return True
@@ -512,8 +520,11 @@ if df_raw is not None:
             tab1, tab2, tab3, tab4 = st.tabs(["📊 Xếp hạng AHP", "🔍 Thông số chi tiết", "🤖 Tư vấn Expert", "Quản trị viên Admin"])
                 
             with tab1:
-                fig = px.bar(top_5.sort_values('score'), x='score', y='id', orientation='h', title="Top 5 phương án tốt nhất", color='score', color_continuous_scale='Reds')
-                st.plotly_chart(fig, use_container_width=True)
+                if px is not None:
+                    fig = px.bar(top_5.sort_values('score'), x='score', y='id', orientation='h', title="Top 5 phương án tốt nhất", color='score', color_continuous_scale='Reds')
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.error("Thư viện plotly chưa được cài đặt. Vui lòng chạy: pip install plotly")
                 st.dataframe(top_5[['id', 'ten_quan', 'gia_ban', 'score']], use_container_width=True)
 
             with tab2:
